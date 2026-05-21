@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+using UnityEngine.Audio; // 👈 【重要】ミキサーを触るために追加！
 using System.Collections;
 
 public class MenuManager : MonoBehaviour
@@ -8,11 +9,13 @@ public class MenuManager : MonoBehaviour
     public static MenuManager Instance;
 
     [Header("オーディオ設定")]
+    [SerializeField] private AudioMixer mainMixer; // 👈 【新設】作ったMainMixerをここにドラッグする
+    [SerializeField] private Slider bgmSlider;     // 👈 【新設】BGMSliderをここにドラッグする
+    [SerializeField] private Slider seSlider;      // 👈 【新設】SESliderをここにドラッグする
     public AudioSource buttonAudioSource;
 
     [Header("UI設定")]
     public GameObject settingsPanel;
-    public Slider volumeSlider;
 
     void Awake()
     {
@@ -22,17 +25,37 @@ public class MenuManager : MonoBehaviour
 
     void Start()
     {
-        // 音量スライダーが設定されている場合のみイベントを登録
-        if (volumeSlider != null)
+        // ゲーム起動時に、今のスライダーの値をミキサーに即座に反映させる
+        if (bgmSlider != null) SetBGMVolume(bgmSlider.value);
+        if (seSlider != null) SetSEVolume(seSlider.value);
+
+        // スライダーを動かしたときに、リアルタイムで音量が変わるように命令を登録する
+        if (bgmSlider != null) bgmSlider.onValueChanged.AddListener(SetBGMVolume);
+        if (seSlider != null) seSlider.onValueChanged.AddListener(SetSEVolume);
+    }
+
+    // 👈 【新設】BGMの音量を変更する関数
+    public void SetBGMVolume(float volume)
+    {
+        if (mainMixer != null)
         {
-            volumeSlider.onValueChanged.RemoveAllListeners();
-            volumeSlider.onValueChanged.AddListener(OnVolumeChanged);
-            volumeSlider.value = AudioListener.volume;
+            // Mixerの「BGMVolume」というパラメーターの値をスライダーの値に変える
+            mainMixer.SetFloat("BGMVolume", volume);
+        }
+    }
+
+    // 👈 【新設】効果音（SE）の音量を変更する関数
+    public void SetSEVolume(float volume)
+    {
+        if (mainMixer != null)
+        {
+            // Mixerの「SEVolume」というパラメーターの値をスライダーの値に変える
+            mainMixer.SetFloat("SEVolume", volume);
         }
     }
 
     // --------------------------------------------------
-    // ボタンから呼び出す関数（ここが消えていた可能性があります）
+    // ボタンから呼び出す関数（ここから下は前のまま残しています！）
     // --------------------------------------------------
 
     // スタートボタン用
@@ -72,7 +95,7 @@ public class MenuManager : MonoBehaviour
         }
     }
 
-// イグジットボタンを押したときに呼ばれる関数
+    // イグジットボタンを押したときに呼ばれる関数
     public void QuitGame()
     {
         if (buttonAudioSource != null) buttonAudioSource.Play(); // 音を鳴らす
@@ -84,7 +107,6 @@ public class MenuManager : MonoBehaviour
     // 0.2秒待ってからゲームを終了するお留守番コード
     IEnumerator WaitAndQuit()
     {
-        // 0.2秒だけ待つ（クリック音が鳴り終わる時間）
         yield return new WaitForSecondsRealtime(0.2f);
 
         #if UNITY_EDITOR
@@ -92,11 +114,5 @@ public class MenuManager : MonoBehaviour
         #else
         Application.Quit(); // 実際のゲーム終了
         #endif
-    }
-
-    // スライダー用
-    public void OnVolumeChanged(float value)
-    {
-        AudioListener.volume = value;
     }
 }

@@ -75,8 +75,10 @@ public class PlayerController : MonoBehaviour
 
 public void ShowGameOver()
 {
+    // ★【追加】画面にいるTimerManagerを見つけて、タイマーをストップさせる！
+    FindObjectOfType<TimerManager>().StopTimer();
+
     // ★【ここが超重要！】捕まったその瞬間に、即座にゲームの時間をピタッと止める！
-    // これでチーターの動きも、背景のスクロールも、生存時間のカウントもその瞬間で凍りつきます。
     Time.timeScale = 0f; 
 
     // 時間を止めた状態で、裏で「少し待ってから画面を出す処理」を起動する
