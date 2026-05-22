@@ -7,6 +7,7 @@ public class PlayerController : MonoBehaviour
     public GameObject gameOverPanel;
     
     [Header("オーディオ設定")]
+    public AudioClip gaoSound;       // ★【新しく追加】チーターの「ガオー！」の音
     public AudioClip jumpSound;      // ジャンプ音
     public AudioClip gameOverSound;  // ゲームオーバー音
     public AudioClip buttonClickSound; // ★ボタンを押した時の音
@@ -73,56 +74,61 @@ public class PlayerController : MonoBehaviour
         }
     }
 
-public void ShowGameOver()
-{
-    // ★【追加】画面にいるTimerManagerを見つけて、タイマーをストップさせる！
-    FindObjectOfType<TimerManager>().StopTimer();
-
-    // ★【ここが超重要！】捕まったその瞬間に、即座にゲームの時間をピタッと止める！
-    Time.timeScale = 0f; 
-
-    // 時間を止めた状態で、裏で「少し待ってから画面を出す処理」を起動する
-    StartCoroutine(WaitAndShowGameOverPanel());
-}
-
-private IEnumerator WaitAndShowGameOverPanel()
-{
-    // ★【注意】Time.timeScale = 0f でゲームの時間が止まっているため、
-    // 普通の「WaitForSeconds」だと無限に待つことになってしまいます。
-    // そのため、現実世界のリアルな時間を計る「WaitForSecondsRealtime」に書き換えます！
-    yield return new WaitForSecondsRealtime(0.5f);
-
-    // ゲームオーバー音を鳴らす
-    if (audioSource != null && gameOverSound != null)
+    public void ShowGameOver()
     {
-        audioSource.PlayOneShot(gameOverSound);
-    }
-
-    if (gameOverPanel != null)
-    {
-        // まずゲームオーバーイラストをアクティブ（表示）にする
-        gameOverPanel.SetActive(true);
-
-        // 大きさは1のまま固定
-        gameOverPanel.transform.localScale = Vector3.one;
-
-        // RectTransformを取得して位置をアニメーション
-        RectTransform rect = gameOverPanel.GetComponent<RectTransform>();
-        if (rect != null)
+        // ★【追加】見つかったその瞬間に、まず「ガオー！」を即座に1回鳴らす！
+        if (audioSource != null && gaoSound != null)
         {
-            // 画面のすぐ上（Y座標: 1000）に配置
-            rect.anchoredPosition = new Vector2(0f, 1200f);
-
-            // 0.7秒かけて、上から中央にガッシャーンと落とす！
-            LeanTween.move(rect, Vector2.zero, 0.7f)
-                .setEaseOutBounce()
-                .setIgnoreTimeScale(true); // 時間が止まっていても動く魔法の命令
+            audioSource.PlayOneShot(gaoSound);
         }
+
+        // 画面にいるTimerManagerを見つけて、タイマーをストップさせる！
+        FindObjectOfType<TimerManager>().StopTimer();
+
+        // 捕まったその瞬間に、即座にゲームの時間をピタッと止める！
+        Time.timeScale = 0f; 
+
+        // 時間を止めた状態で、裏で「0.5秒待ってからゲームオーバー画面を出す処理」を起動する
+        StartCoroutine(WaitAndShowGameOverPanel());
     }
-    
-    // メッセージやタイムのセットアップ（文字の流し込みなど）
-    FindObjectOfType<GameOverManager>().SetupGameOver();
-}
+
+    private IEnumerator WaitAndShowGameOverPanel()
+    {
+        // ここでリアルタイムの「0.5秒」を待ちます（ガオーの声を聞かせるタメの時間）
+        yield return new WaitForSecondsRealtime(0.5f);
+
+        // ガオーが終わったあと、本来のゲームオーバー音を鳴らす
+        if (audioSource != null && gameOverSound != null)
+        {
+            audioSource.PlayOneShot(gameOverSound);
+        }
+
+        if (gameOverPanel != null)
+        {
+            // まずゲームオーバーイラストをアクティブ（表示）にする
+            gameOverPanel.SetActive(true);
+
+            // 大きさは1のまま固定
+            gameOverPanel.transform.localScale = Vector3.one;
+
+            // RectTransformを取得して位置をアニメーション
+            RectTransform rect = gameOverPanel.GetComponent<RectTransform>();
+            if (rect != null)
+            {
+                // 画面のすぐ上（Y座標: 1200）に配置
+                rect.anchoredPosition = new Vector2(0f, 1200f);
+
+                // 0.7秒かけて、上から中央にガッシャーンと落とす！
+                LeanTween.move(rect, Vector2.zero, 0.7f)
+                    .setEaseOutBounce()
+                    .setIgnoreTimeScale(true); // 時間が止まっていても動く魔法の命令
+            }
+        }
+        
+        // メッセージやタイムのセットアップ（文字の流し込みなど）
+        FindObjectOfType<GameOverManager>().SetupGameOver();
+    }
+
     public void BackToTitle()
     {
         // 1. まず時間を動かす
@@ -145,7 +151,6 @@ private IEnumerator WaitAndShowGameOverPanel()
         
         SceneManager.LoadScene("StartMenu");
     }
-    // --- 📄 ここから新しく一番下に追加するコード ---
 
     // リトライボタンが押された時に実行するメソッド
     public void RetryGame()
