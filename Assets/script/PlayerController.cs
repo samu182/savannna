@@ -1,13 +1,14 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using System.Collections;
+using unityroom.Api; // ★UnityroomApiClientを使うために必要
 
 public class PlayerController : MonoBehaviour
 {
     public GameObject gameOverPanel;
     
     [Header("オーディオ設定")]
-    public AudioClip gaoSound;       // ★【新しく追加】チーターの「ガオー！」の音
+    public AudioClip gaoSound;       // ★チーターの「ガオー！」の音
     public AudioClip jumpSound;      // ジャンプ音
     public AudioClip gameOverSound;  // ゲームオーバー音
     public AudioClip buttonClickSound; // ★ボタンを押した時の音
@@ -15,6 +16,8 @@ public class PlayerController : MonoBehaviour
 
     [Header("ジャンプ設定")]
     public float jumpForce = 12f;
+    [SerializeField] private float jumpCooldown = 0.1f; // 連打・同時押し防止のクールタイム
+    private float nextJumpTime = 0f;                    // 次にジャンプできる時間
 
     [Header("接地判定")]
     public Transform groundCheck;
@@ -25,31 +28,37 @@ public class PlayerController : MonoBehaviour
     private bool isGrounded;
     private bool isInWater = false;
 
+    [Header("クリア判定")]
+    public float clearTimeThreshold = 100f; // 👈 インスペクターで変更できるようになります
+
     void Start()
     {
         rb = GetComponent<Rigidbody2D>();
-        // 転倒防止
         rb.constraints = RigidbodyConstraints2D.FreezeRotation;
-
-        // 自分のオブジェクトについているAudioSourceを準備
         audioSource = GetComponent<AudioSource>();
     }
 
     void Update()
     {
-        // 地面についているかチェック
         isGrounded = Physics2D.OverlapCircle(groundCheck.position, checkRadius, groundLayer);
         
-        // スペースキーでジャンプ
-        if (Input.GetKeyDown(KeyCode.Space) && isGrounded && !isInWater)
+        if (isGrounded && !isInWater && Time.time >= nextJumpTime)
         {
-            rb.AddForce(Vector2.up * jumpForce, ForceMode2D.Impulse);
-
-            // ジャンプ音を鳴らす
-            if (audioSource != null && jumpSound != null)
+            if (Input.GetMouseButtonDown(0) || Input.GetKeyDown(KeyCode.Space))
             {
-                audioSource.PlayOneShot(jumpSound);
+                TriggerJump();
+                nextJumpTime = Time.time + jumpCooldown; 
             }
+        }
+    }
+
+    private void TriggerJump()
+    {
+        rb.AddForce(Vector2.up * jumpForce, ForceMode2D.Impulse);
+
+        if (audioSource != null && jumpSound != null)
+        {
+            audioSource.PlayOneShot(jumpSound);
         }
     }
 
@@ -67,7 +76,6 @@ public class PlayerController : MonoBehaviour
 
     void OnCollisionEnter2D(Collision2D collision)
     {
-        // 水（障害物）に当たったらゲームオーバー
         if (collision.gameObject.CompareTag("Water"))
         {
             ShowGameOver();
@@ -76,28 +84,61 @@ public class PlayerController : MonoBehaviour
 
     public void ShowGameOver()
     {
-        // ★【追加】見つかったその瞬間に、まず「ガオー！」を即座に1回鳴らす！
+        Debug.Log("[デバッグ] --- ShowGameOver が呼び出されました ---");
+
         if (audioSource != null && gaoSound != null)
         {
             audioSource.PlayOneShot(gaoSound);
         }
 
-        // 画面にいるTimerManagerを見つけて、タイマーをストップさせる！
-        FindObjectOfType<TimerManager>().StopTimer();
+        // ① 【最優先】まずは本当の時間を TimerManager から取得する！
+        float finalTime = 0f;
+        TimerManager timer = FindAnyObjectByType<TimerManager>();
+        
+        if (timer != null)
+        {
+            finalTime = timer.StopTimer(); 
+            Debug.Log($"[デバッグ] TimerManagerから取得した値: {finalTime}");
+        }
+        else
+        {
+            Debug.LogError("[デバッグ] エラー: TimerManager がシーン内に見つかりません！");
+        }
 
-        // 捕まったその瞬間に、即座にゲームの時間をピタッと止める！
+        // ② 取得した時間（スコア）を Unityroom に送信する
+        if (finalTime > 0f)
+        {
+            Debug.Log($"[デバッグ] Unityroomへスコア送信を開始します。送信値: {finalTime}");
+            UnityroomApiClient.Instance.SendScore(1, finalTime, ScoreboardWriteMode.HighScoreDesc);
+            Debug.Log($"[unityroom公式] スコア {finalTime} を送信完了メッセージを送りました。");
+        }
+
+        // ③ ★★★ ここでやっと判定！取得した本当の時間でクリアかチェックする ★★★
+        if (finalTime >= clearTimeThreshold)
+        {
+            Debug.Log($"[クリア判定] 生存時間 {finalTime}秒 が目標を達成！クリア演出を開始します！");
+            
+            GameClearManager clearManager = FindAnyObjectByType<GameClearManager>();
+            if (clearManager != null)
+            {
+                clearManager.StartClearSequence(this.gameObject);
+            }
+            else
+            {
+                Debug.LogError("[エラー] GameClearManager がシーン内に見つかりません！ヒエラルキーに作成されていますか？");
+            }
+            return; // 👈 10秒（または100秒）以上なら、ここで強制終了してゲームオーバー画面を防ぐ！
+        }
+
+        // ④ クリア条件を満たしていなかった時だけ、下のゲームオーバー処理が実行される
         Time.timeScale = 0f; 
-
-        // 時間を止めた状態で、裏で「0.5秒待ってからゲームオーバー画面を出す処理」を起動する
         StartCoroutine(WaitAndShowGameOverPanel());
     }
 
     private IEnumerator WaitAndShowGameOverPanel()
     {
-        // ここでリアルタイムの「0.5秒」を待ちます（ガオーの声を聞かせるタメの時間）
         yield return new WaitForSecondsRealtime(0.5f);
 
-        // ガオーが終わったあと、本来のゲームオーバー音を鳴らす
         if (audioSource != null && gameOverSound != null)
         {
             audioSource.PlayOneShot(gameOverSound);
@@ -105,76 +146,51 @@ public class PlayerController : MonoBehaviour
 
         if (gameOverPanel != null)
         {
-            // まずゲームオーバーイラストをアクティブ（表示）にする
             gameOverPanel.SetActive(true);
-
-            // 大きさは1のまま固定
             gameOverPanel.transform.localScale = Vector3.one;
 
-            // RectTransformを取得して位置をアニメーション
             RectTransform rect = gameOverPanel.GetComponent<RectTransform>();
             if (rect != null)
             {
-                // 画面のすぐ上（Y座標: 1200）に配置
                 rect.anchoredPosition = new Vector2(0f, 1200f);
-
-                // 0.7秒かけて、上から中央にガッシャーンと落とす！
                 LeanTween.move(rect, Vector2.zero, 0.7f)
                     .setEaseOutBounce()
-                    .setIgnoreTimeScale(true); // 時間が止まっていても動く魔法の命令
+                    .setIgnoreTimeScale(true);
             }
         }
         
-        // メッセージやタイムのセットアップ（文字の流し込みなど）
-        FindObjectOfType<GameOverManager>().SetupGameOver();
+        FindAnyObjectByType<GameOverManager>().SetupGameOver();
     }
 
     public void BackToTitle()
     {
-        // 1. まず時間を動かす
         Time.timeScale = 1f; 
-
-        // 2. ボタンの音（buttonClickSound）を鳴らす
         if (audioSource != null && buttonClickSound != null) 
         {
             audioSource.PlayOneShot(buttonClickSound);
         }
-
-        // 3. 少し待ってからシーンを切り替える（WaitAndBackを呼ぶ）
         StartCoroutine(WaitAndBack());
     }
 
     IEnumerator WaitAndBack()
     {
-        // 0.2秒待つ（音を聞かせるため）
         yield return new WaitForSecondsRealtime(0.2f);
-        
         SceneManager.LoadScene("StartMenu");
     }
 
-    // リトライボタンが押された時に実行するメソッド
     public void RetryGame()
     {
-        // 1. まず時間を通常（1）に戻す
         Time.timeScale = 1f; 
-
-        // 2. ボタンのクリック音を鳴らす
         if (audioSource != null && buttonClickSound != null) 
         {
             audioSource.PlayOneShot(buttonClickSound);
         }
-
-        // 3. 音を響かせるために、少し待ってから再起動するコルーチンを開始
         StartCoroutine(WaitAndRetry());
     }
 
-    // 音を聞かせるために一瞬だけ待ってからリトライする処理
     private IEnumerator WaitAndRetry()
     {
-        // 0.2秒待つ（タイトルに戻る処理と同じタメを作る）
         yield return new WaitForSecondsRealtime(0.2f);
-        
-        // いま遊んでいるシーンの名前を取得して、最初から読み直す！
         string currentSceneName = SceneManager.GetActiveScene().name;
         SceneManager.LoadScene(currentSceneName);
     }
